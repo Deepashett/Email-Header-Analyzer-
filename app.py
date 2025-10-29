@@ -1,106 +1,66 @@
 from flask import Flask, render_template, request
-from werkzeug.utils import secure_filename
 import os
-import re
 
 app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = 'uploads'
 
-UPLOAD_FOLDER = 'uploads'
-ALLOWED_EXTENSIONS = {'txt', 'eml'}
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-def extract_email(field):
-    match = re.search(r'<(.+?)>', field)
-    return match.group(1) if match else field.strip()
-
-def analyze_header(header_text):
+def analyze_header(header_content):
     result = []
-    warnings = 0
-
-    lines = header_text.splitlines()
-    from_field = ""
-    return_path_field = ""
-    spf_result = ""
-    dkim_result = ""
-    dmarc_result = ""
-    subject_line = ""
-
-    for line in lines:
-        if line.lower().startswith("from:"):
-            from_field = line.split(":", 1)[1].strip()
-        elif line.lower().startswith("return-path:"):
-            return_path_field = line.split(":", 1)[1].strip()
-        elif "spf=" in line.lower():
-            match = re.search(r"spf=(\w+)", line, re.IGNORECASE)
-            if match:
-                spf_result = match.group(1)
-        elif "dkim=" in line.lower():
-            match = re.search(r"dkim=(\w+)", line, re.IGNORECASE)
-            if match:
-                dkim_result = match.group(1)
-        elif "dmarc=" in line.lower():
-            match = re.search(r"dmarc=(\w+)", line, re.IGNORECASE)
-            if match:
-                dmarc_result = match.group(1)
-        elif line.lower().startswith("subject:"):
-            subject_line = line.split(":", 1)[1].strip()
-
-    from_email = extract_email(from_field)
-    return_path_email = extract_email(return_path_field)
-
-    if return_path_field:
-        if from_email.lower() != return_path_email.lower():
-            result.append("⚠️ 'From' and 'Return-Path' mismatch.")
-            warnings += 1
+    email_from = ""
+    return_path = ""
+    spf = ""
+    dkim = ""
+    dmarc = ""
+    ip_address = ""
+    for line in header_content.splitlines():
+        line_lower = line.lower()
+        if line_lower.startswith("from:"):
+            email_from = line.split(":", 1)[1].strip()
+        elif line_lower.startswith("return-path:"):
+            return_path = line.split(":", 1)[1].strip()
+        elif "spf=" in line_lower:
+            spf = line.split("spf=")[-1].split()[0]
+        elif "dkim=" in line_lower:
+            dkim = line.split("dkim=")[-1].split()[0]
+        elif "dmarc=" in line_lower:
+            dmarc = line.split("dmarc=")[-1].split()[0]
+        elif "received: from" in line_lower and "[" in line:
+            ip_address = line.split("[")[-1].split("]")[0]
+    if email_from:
+        result.append(f"From: {email_from}")
+    if return_path:
+        result.append(f"Return Path: {return_path}")
+    if spf:
+        result.append(f"SPF: {spf}")
+    if dkim:
+        result.append(f"DKIM: {dkim}")
+    if dmarc:
+        result.append(f"DMARC: {dmarc}")
+    if ip_address:
+        result.append(f"IP Address: {ip_address}")
+    if "fail" in (spf + dkim + dmarc).lower():
+        risk = "High"
+    elif "pass" in (spf + dkim + dmarc).lower():
+        risk = "Medium"
     else:
-        result.append("⚠️ 'Return-Path' missing.")
-        warnings += 1
+        risk = "Low"
+    result.append(f"Risk Level: {risk}")
+    return result
 
-    if spf_result != "pass":
-        result.append("⚠️ SPF failed.")
-        warnings += 1
-    if dkim_result != "pass":
-        result.append("⚠️ DKIM failed.")
-        warnings += 1
-    if dmarc_result != "pass":
-        result.append("⚠️ DMARC failed.")
-        warnings += 1
-
-    if re.search(r"(urgent|verify|confirm|suspended)", subject_line, re.IGNORECASE):
-        result.append("⚠️ Suspicious keywords in subject.")
-        warnings += 1
-
-    if warnings == 0:
-        score = "Low Risk"
-    elif warnings <= 2:
-        score = "Medium Risk"
-    else:
-        score = "High Risk"
-
-    return result, score
-
-@app.route("/", methods=["GET", "POST"])
+@app.route('/', methods=['GET', 'POST'])
 def index():
-    result = []
-    score = ""
-    if request.method == "POST":
-        header_text = request.form.get("header", "")
-        file = request.files.get("file")
+    result = None
+    if request.method == 'POST':
+        header_content = request.form.get('header')
+        file = request.files.get('file')
+        if file and file.filename != '':
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
+            file.save(file_path)
+            with open(file_path, 'r', encoding='utf-8') as f:
+                header_content = f.read()
+        if header_content:
+            result = analyze_header(header_content)
+    return render_template('index.html', result=result)
 
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(filepath)
-            with open(filepath, "r", encoding="utf-8") as f:
-                header_text = f.read()
-
-        if header_text:
-            result, score = analyze_header(header_text)
-
-    return render_template("index.html", result=result, score=score)
-
-if __name__ == "__main__":
+if __name__== '__main__':
     app.run(debug=True)

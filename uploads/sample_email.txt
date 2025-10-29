@@ -1,0 +1,16 @@
+Received: from smtp.mail.yahoo.com (203.45.67.89)
+    by mail.receiver.com with ESMTP id abc123
+    for <deepa@example.com>; Wed, 29 Oct 2025 15:42:01 +0530
+Return-Path: <contact@shoppingworld.com>
+Received-SPF: pass (receiver.com: domain of shoppingworld.com designates 203.45.67.89 as permitted sender)
+Authentication-Results: receiver.com;
+    spf=pass smtp.mailfrom=shoppingworld.com;
+    dkim=fail header.i=@shoppingworld.com;
+    dmarc=pass action=none header.from=shoppingworld.com;
+From: Shopping World <contact@shoppingworld.com>
+To: Deepa <deepa@example.com>
+Subject: Order Confirmation #SW2025
+Date: Wed, 29 Oct 2025 15:40:00 +0530
+Message-ID: <12345@mail.shoppingworld.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="UTF-8"
